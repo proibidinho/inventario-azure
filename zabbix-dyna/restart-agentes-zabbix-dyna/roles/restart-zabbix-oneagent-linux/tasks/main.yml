@@ -1,0 +1,83 @@
+# Iniciar e habilitar o serviço
+- name: Iniciar e habilitar o serviço Zabbix Agent
+  ansible.builtin.service:
+    name: zabbix-agent
+    state: started
+    enabled: yes
+
+# Verificar status
+- name: Verificar status do serviço Zabbix Agent
+  ansible.builtin.service_facts:
+
+- name: Mostrar status do serviço Zabbix Agent
+  ansible.builtin.debug:
+    msg: "Zabbix Agent está instalado, iniciado e rodando!"
+  when: "'zabbix-agent.service' in ansible_facts.services and ansible_facts.services['zabbix-agent.service'].state == 'running'"
+
+- name: Alerta se serviço não estiver rodando
+  ansible.builtin.debug:
+    msg: "ATENÇÃO: Zabbix Agent NÃO está rodando!"
+  when: "'zabbix-agent.service' not in ansible_facts.services or ansible_facts.services['zabbix-agent.service'].state != 'running'"
+
+# Verificar versão instalada
+- name: Verificar versão do Zabbix Agent instalada
+  ansible.builtin.shell: zabbix_agentd --version | head -n1 | awk '{print $NF}'
+  register: zabbix_version
+  changed_when: false
+
+- name: Mostrar versão do Zabbix Agent
+  ansible.builtin.debug:
+    msg: "{{ zabbix_version.stdout_lines[0] }}"
+
+
+
+#Agente Dynatrace
+
+- name: "Dynatrace Linux"
+  block:
+  
+    - name: "[DYNA-L] Verificar se OneAgent ja esta instalado"
+      ansible.builtin.stat:
+        path: /opt/dynatrace/oneagent/agent/installer.version
+      register: dyna_installed
+
+    - name: "[DYNA-L] Pular instalacao - OneAgent ja instalado"
+      ansible.builtin.meta: end_host
+      when: not dyna_installed.stat.exists
+
+
+    - name: "[DYNA-L] Iniciar e habilitar servico oneagent"
+      ansible.builtin.service:
+        name: oneagent
+        state: started
+        enabled: yes
+
+    # --- 5) validar ---------------------------------------------------------
+    - name: "[DYNA-L] Coletar fatos de servicos"
+      ansible.builtin.service_facts:
+
+    - name: "[DYNA-L] Validar oneagent rodando"
+      ansible.builtin.assert:
+        that:
+          - "'oneagent' in ansible_facts.services"
+          - "ansible_facts.services['oneagent'].state == 'running'"
+
+    - name: "[DYNA-L] Capturar versao final"
+      ansible.builtin.slurp:
+        path: /opt/dynatrace/oneagent/agent/installer.version
+      register: final_version
+
+    - name: "[DYNA-L] Resumo OK"
+      ansible.builtin.debug:
+        msg: "OK | {{ vm_hostname | default(inventory_hostname) }} - OneAgent {{ final_installed_version }}"
+
+  rescue:
+
+    - name: "[DYNA-L] Marcar falha"
+      ansible.builtin.set_fact:
+        dyna_install_failed:   true
+        dyna_install_fail_msg: "{{ ansible_failed_result.msg | default('falha desconhecida') }}"
+
+    - name: "[DYNA-L] Resumo falha"
+      ansible.builtin.debug:
+        msg: "FALHA Dynatrace | {{ vm_hostname | default(inventory_hostname) }}: {{ dyna_install_fail_msg }}"

@@ -1,0 +1,11 @@
+---
+- name: "Windows Mackenzie - Dynatrace + Zabbix"
+  hosts: windows_alvo
+  gather_facts: true
+  ignore_unreachable: true
+  any_errors_fatal: false
+  serial: 20
+  vars_files:
+    - ../../group_vars/all.yml
+  roles:
+    - restart-zabbix-oneagent-windows

@@ -1,0 +1,31 @@
+---
+# =============================================================================
+# Variaveis globais do projeto (TODAS aqui)
+# =============================================================================
+# Em producao recomenda-se mover este arquivo para ansible-vault.
+# =============================================================================
+
+# Proxy por DC (usado pelo OneAgent Windows --set-proxy=)
+proxy_por_dc:
+  Lapa: "http://10.29.177.37:8080"
+  Campinas: "http://10.54.24.184:3128"
+  Mackenzie: "http://10.243.179.233:3128"
+
+
+# Windows
+zabbix_win_service_name: 'Zabbix Agent'
+
+
+# ---- SMTP (relatorios opcionais) -----------------------------------------
+smtp_host: "smtp.corp.clarobr"
+smtp_port: 25
+smtp_from: "ansible-aap@corp.clarobr"
+
+# ---- Conexao -------------------------------------------------------------
+# Linux: SSH como root via chave de confianca ja instalada na VM (sem CyberArk).
+linux_user_default: "root"
+# Windows: usuario de fallback se o CyberArk falhar.
+windows_user_default: "Administrator"
+
+# CyberArk so e usado para Windows.
+use_cyberark: true

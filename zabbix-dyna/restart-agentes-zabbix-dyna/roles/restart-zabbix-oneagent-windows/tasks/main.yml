@@ -1,0 +1,80 @@
+- name: "Zabbix Windows"
+  block:
+    - name: "[ZBX-W] Garantir servico iniciado (auto)"
+      ansible.windows.win_service:
+        name: "{{ zabbix_win_service_name }}"
+        start_mode: auto
+        state: "{{ 'restarted' if zbx_conf is changed else 'started' }}"
+
+    - name: "[ZBX-W] Marcar sucesso"
+      ansible.builtin.set_fact:
+        zabbix_install_success: true
+
+    - name: "[ZBX-W] Resumo OK"
+      ansible.builtin.debug:
+        msg: "OK | {{ vm_hostname | default(inventory_hostname) }} - servico {{ zabbix_win_service_name }}"
+
+  rescue:
+
+    - name: "[ZBX-W] Marcar falha"
+      ansible.builtin.set_fact:
+        zabbix_install_failed:   true
+        zabbix_install_fail_msg: "{{ ansible_failed_result.msg | default('falha desconhecida') }}"
+
+    - name: "[ZBX-W] Resumo falha"
+      ansible.builtin.debug:
+        msg: "FALHA Zabbix | {{ vm_hostname | default(inventory_hostname) }}: {{ zabbix_install_fail_msg }}"
+
+
+
+#Agente do Dyna
+- name: "[{{ versao_windows_label }}] Verificar servico (coringa WMI)"
+  ansible.windows.win_shell: |
+    $svc = Get-WmiObject Win32_Service -Filter "Name='Dynatrace OneAgent'" -ErrorAction SilentlyContinue
+    if ($svc) { Write-Output ("STATE=" + $svc.State) } else { Write-Output "STATE=NAO_ENCONTRADO" }
+  register: status_servico
+  changed_when: false
+  when:
+  - (exit_code_install | int) == 0
+  - usar_wmi_coringa | default(false)
+
+- name: "[{{ versao_windows_label }}] Verificar servico (cmdlet moderno)"
+  ansible.windows.win_shell: |
+    $svc = Get-Service -Name 'Dynatrace OneAgent' -ErrorAction SilentlyContinue
+    if ($svc) { Write-Output ("STATE=" + $svc.Status) } else { Write-Output "STATE=NAO_ENCONTRADO" }
+  register: status_servico
+  changed_when: false
+  when:
+  - (exit_code_install | int) == 0
+  - not (usar_wmi_coringa | default(false))
+
+- name: "[{{ versao_windows_label }}] Capturar versao instalada"
+  ansible.windows.win_shell: |
+    $arq = 'C:\Program Files\dynatrace\oneagent\agent\installer.version'
+    if (Test-Path $arq) { Get-Content $arq } else { Write-Output "N/A" }
+  register: versao_instalada
+  changed_when: false
+  when: (exit_code_install | int) == 0
+
+- name: "[{{ versao_windows_label }}] Registrar sucesso"
+  ansible.builtin.set_fact:
+    status_install: "OK"
+    tipo_erro_install: "NENHUM"
+    mensagem_install: "Dynatrace OneAgent instalado com sucesso"
+    versao_oneagent: "{{ versao_instalada.stdout | default('N/A') | trim }}"
+  when:
+  - (exit_code_install | int) == 0
+  - status_servico.stdout is defined
+  - ("'STATE=Running' in status_servico.stdout") or ("'STATE=4' in status_servico.stdout")
+
+- name: "[{{ versao_windows_label }}] Registrar falha se servico nao subiu"
+  ansible.builtin.set_fact:
+    status_install: "FALHA"
+    tipo_erro_install: "FALHA_INSTALACAO"
+    mensagem_install: >-
+      Instalador terminou com sucesso mas o servico Dynatrace OneAgent nao iniciou. Resposta: {{ status_servico.stdout | default('sem resposta') | trim }}
+  when:
+  - (exit_code_install | int) == 0
+  - status_servico.stdout is defined
+  - "'STATE=Running' not in status_servico.stdout"
+  - "'STATE=4' not in status_servico.stdout"

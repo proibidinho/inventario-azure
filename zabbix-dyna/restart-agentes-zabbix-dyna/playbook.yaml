@@ -1,0 +1,104 @@
+---
+# =============================================================================
+
+- name: "Validar entradas e construir inventario"
+  hosts: localhost
+  gather_facts: false
+  tasks:
+
+    - name: "Validar vms_provisionadas / operation_system_name / datacenter_name"
+      ansible.builtin.assert:
+        that:
+          - vms is defined and (vms | length > 0)
+          - operation_system is defined and operation_system == "Windows" or operation_system == "Linux" 
+          - datacenter_name is defined and datacenter_name in ['Campinas','Lapa','Mackenzie']
+        fail_msg: "Variaveis ausentes ou invalidas. Verifique o survey/workflow."
+
+    - name: "Resumo da execucao"
+      ansible.builtin.debug:
+        msg:
+          - "================================================================"
+          - "Datacenter ......: {{ datacenter_name }}"
+          - "SO ..............: {{ operation_system }}"
+          - "VMs alvo ........: {{ vms_provisionadas | map(attribute='hostname') | list }}"
+          - "================================================================"
+
+    # ---------------- credencial APENAS Windows (Linux usa chave SSH) -----
+    - name: "CyberArk Windows"
+      cyberark.pas.cyberark_credential:
+        api_base_url: "https://10.88.132.184/"
+        app_id: "APP_Ansible"
+        path: "AIMWebService/api/Accounts"
+        query: "Safe=APP_Ansible;UserName=OPS_CRK_API_AAPWIN"
+        validate_certs: false
+        reason: "Restart Agentes Dyna+Zabbix - {{ datacenter_name }}"
+        connection_timeout: 60
+        fail_request_on_password_change: true
+      register: cyberark_win
+      ignore_errors: true
+      no_log: true
+      when:
+        - operation_system == 'Windows'
+        - use_cyberark | bool
+      environment: { http_proxy: "", https_proxy: "", no_proxy: "10.88.132.184" }
+
+    - name: "Definir credencial efetiva (Windows)"
+      ansible.builtin.set_fact:
+        host_ansible_user: >-
+          {{ (cyberark_win.result.UserName ~ '@CORP.CLAROBR')
+             if (cyberark_win is defined and cyberark_win is succeeded
+                 and (cyberark_win.result | default({})).UserName is defined)
+             else windows_user_default }}
+        host_ansible_password: >-
+          {{ cyberark_win.result.Content
+             if (cyberark_win is defined and cyberark_win is succeeded
+                 and (cyberark_win.result | default({})).Content is defined)
+             else (windows_user_password | default(omit)) }}
+      no_log: true
+      when: operation_system == 'Windows'
+
+    # ---------------- inventario dinamico ---------------------------------
+    - name: "Construir inventario LINUX (grupo aai)"
+      ansible.builtin.import_role:
+        name: inventory
+      vars:
+        target_group: aai
+        target_os:    linux
+      when: operation_system == 'Linux'
+
+    - name: "Construir inventario WINDOWS (grupo windows_alvo)"
+      ansible.builtin.import_role:
+        name: inventory
+      vars:
+        target_group: windows_alvo
+        target_os:    windows
+      when: operation_system == 'Windows'
+
+# -----------------------------------------------------------------------------
+# LINUX - import por DC
+# -----------------------------------------------------------------------------
+- import_playbook: playbooks/linux/campinas.yml
+  when: operation_system == "Windows" and datacenter_name == 'Campinas'
+
+
+- import_playbook: playbooks/linux/lapa.yml
+  when: operation_system == "Windows" and datacenter_name == 'Lapa'
+
+
+- import_playbook: playbooks/linux/mackenzie.yml
+  when: operation_system == "Windows" and datacenter_name == 'Mackenzie'
+
+
+# -----------------------------------------------------------------------------
+# WINDOWS - import por DC
+# -----------------------------------------------------------------------------
+- import_playbook: playbooks/windows/campinas.yml
+  when: operation_system == "Windows" and datacenter_name == 'Campinas'
+
+- import_playbook: playbooks/windows/lapa.yml
+  when: operation_system == "Windows" and datacenter_name == 'Lapa'
+
+
+- import_playbook: playbooks/windows/mackenzie.yml
+  when: operation_system == "Windows" and datacenter_name == 'Mackenzie'
+
